@@ -84,8 +84,7 @@ class TextDataset(DatasetBase):
 
         def filter_pred(example):
             """ ? """
-            return 0 < len(example.src) <= src_seq_length \
-                and 0 < len(example.tgt) <= tgt_seq_length
+            return 0 < len(example.src_item_sku) <= 30
 
         filter_pred = filter_pred if use_filter_pred else lambda x: True
 
@@ -259,6 +258,26 @@ class TextDataset(DatasetBase):
             use_vocab=False, dtype=torch.long,
             sequential=False)
 
+        fields_list = ['session_id', 'item_sku', 'user_log',
+                       'operator', 'site_cy', 'site_pro', 'site_ct']
+
+        # New Add Src Fields
+        for _field in fields_list:
+            fields['src_'+_field] = torchtext.data.Field(include_lengths=True)
+        fields['src_stm'] = torchtext.data.Field(
+            use_vocab=False, dtype=torch.long, pad_token=0)
+        fields['src_page_ts'] = torchtext.data.Field(
+            use_vocab=False, dtype=torch.long, pad_token=0)
+
+        # New Add Tgt Fields
+        for _field in fields_list:
+            fields['tgt_'+_field] = torchtext.data.Field(include_lengths=True)
+        fields['tgt_stm'] = torchtext.data.Field(
+            use_vocab=False, dtype=torch.long, pad_token=0)
+        fields['tgt_page_ts'] = torchtext.data.Field(
+            use_vocab=False, dtype=torch.long, pad_token=0)
+        
+
         return fields
 
     @staticmethod
@@ -277,7 +296,15 @@ class TextDataset(DatasetBase):
             number of features on `side`.
         """
         with codecs.open(corpus_file, "r", "utf-8") as cf:
-            f_line = cf.readline().strip().split()
+            sessions = cf.readline().strip('\n').split('||')
+            for _s in sessions:
+                if len(_s.split('  '))!=11:
+                    print('error: '+ _s)
+                    assert 1==0
+            f_line = []
+            for s in sessions:
+                f_line.extend(s.split('  ')[9].split())
+                f_line.extend(s.split('  ')[10].split())
             _, _, num_feats = TextDataset.extract_text_features(f_line)
 
         return num_feats
@@ -409,11 +436,44 @@ class ShardedTextCorpusIterator(object):
         return self.n_feats
 
     def _example_dict_iter(self, line, index):
-        line = line.split()
+        sessions = line.strip('\n').split('||')
+
+        session_id = [s.split('  ')[0] for s in sessions]
+        item_sku_id = [s.split('  ')[1] for s in sessions]
+        user_log = [s.split('  ')[2] for s in sessions]
+        operator = [s.split('  ')[3] for s in sessions]
+        user_site_cy = [s.split('  ')[4] for s in sessions]
+        user_site_pro = [s.split('  ')[5] for s in sessions]
+        user_site_ct = [s.split('  ')[6] for s in sessions]
+        stm = [int(s.split('  ')[7]) for s in sessions]
+        page_ts = [int(s.split('  ')[8]) for s in sessions]
+        item_name = [s.split('  ')[9].split() for s in sessions]
+        item_comment = [s.split('  ')[10].split() for s in sessions]
+
+        line = []
+
         if self.line_truncate:
-            line = line[:self.line_truncate]
+            for tmp_name, tmp_comment in zip(item_name,item_comment):
+                line.extend(tmp_name[:self.line_truncate])
+                line.extend(tmp_comment[:self.line_truncate])
+        else:
+            for tmp_name, tmp_comment in zip(item_name,item_comment):
+                line.extend(tmp_name)
+                line.extend(tmp_comment)
+                
         words, feats, n_feats = TextDataset.extract_text_features(line)
-        example_dict = {self.side: words, "indices": index}
+        example_dict = {self.side: words,
+                        self.side + "_session_id": session_id,
+                        self.side + "_item_sku": item_sku_id,
+                        self.side + "_user_log": user_log,
+                        self.side + "_operator": operator,
+                        self.side + "_site_cy": user_site_cy,
+                        self.side + "_site_pro": user_site_pro,
+                        self.side + "_site_ct": user_site_ct,
+                        self.side + "_stm": stm,
+                        self.side + "_page_ts": page_ts,
+                        "indices": index}
+
         if feats:
             # All examples must have same number of features.
             aeq(self.n_feats, n_feats)

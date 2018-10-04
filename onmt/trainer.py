@@ -260,13 +260,20 @@ class Trainer(object):
             else:
                 trunc_size = target_size
 
+            src_session = inputters.make_features(batch, 'src_item_sku')
+            user = inputters.make_features(batch, 'user')
+            stm = inputters.make_features(batch, 'stm')
+            tgt_session = inputters.make_features(batch, 'tgt_item_sku')
+
             dec_state = None
             src = inputters.make_features(batch, 'src', self.data_type)
             if self.data_type == 'text':
                 _, src_lengths = batch.src
+                _, session_lengths = batch.src_item_sku
                 report_stats.n_src_words += src_lengths.sum().item()
             else:
                 src_lengths = None
+                session_lengths = None
 
             tgt_outer = inputters.make_features(batch, 'tgt')
 
@@ -277,12 +284,12 @@ class Trainer(object):
                 # 2. F-prop all but generator.
                 if self.grad_accum_count == 1:
                     self.model.zero_grad()
-                outputs, attns, dec_state = \
-                    self.model(src, tgt, src_lengths, dec_state)
+                click_score, outputs, attns, dec_state = \
+                    self.model(src_session, user, stm, src, tgt,session_lengths , src_lengths, dec_state)
 
                 # 3. Compute loss in shards for memory efficiency.
                 batch_stats = self.train_loss.sharded_compute_loss(
-                    batch, outputs, attns, j,
+                    batch, outputs, click_score, attns, j,
                     trunc_size, self.shard_size, normalization)
                 total_stats.update(batch_stats)
                 report_stats.update(batch_stats)

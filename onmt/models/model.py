@@ -13,13 +13,14 @@ class NMTModel(nn.Module):
       multi<gpu (bool): setup for multigpu support
     """
 
-    def __init__(self, encoder, decoder, multigpu=False):
+    def __init__(self,session_encoder, encoder, decoder, multigpu=False):
         self.multigpu = multigpu
         super(NMTModel, self).__init__()
+        self.session_encoder = session_encoder
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, src, tgt, lengths, dec_state=None):
+    def forward(self, session, user, stm, src, tgt,session_lengths, lengths, dec_state=None):
         """Forward propagate a `src` and `tgt` pair for training.
         Possible initialized with a beginning decoder state.
 
@@ -40,9 +41,16 @@ class NMTModel(nn.Module):
                  * dictionary attention dists of `[tgt_len x batch x src_len]`
                  * final decoder state
         """
+
+        click_score, session_final = self.session_encoder(session,user,stm,session_lengths)
+
         tgt = tgt[:-1]  # exclude last target from inputs
 
         enc_final, memory_bank = self.encoder(src, lengths)
+        if isinstance(enc_final, tuple):  # LSTM
+            enc_final = tuple([enc_hid+session_final for enc_hid in enc_final])
+        else:  # GRU
+            enc_final = enc_final + session_final
         enc_state = \
             self.decoder.init_decoder_state(src, memory_bank, enc_final)
         decoder_outputs, dec_state, attns = \
@@ -54,4 +62,4 @@ class NMTModel(nn.Module):
             # Not yet supported on multi-gpu
             dec_state = None
             attns = None
-        return decoder_outputs, attns, dec_state
+        return click_score, decoder_outputs, attns, dec_state

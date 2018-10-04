@@ -6,6 +6,7 @@ import torch.cuda
 import onmt.inputters as inputters
 from onmt.utils.misc import aeq
 from onmt.utils import loss
+import numpy as np
 
 
 class CopyGenerator(nn.Module):
@@ -157,8 +158,9 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         self.normalize_by_length = normalize_by_length
         self.criterion = CopyGeneratorCriterion(len(tgt_vocab), force_copy,
                                                 self.padding_idx)
+        self.session_criterion = nn.CrossEntropyLoss()
 
-    def _make_shard_state(self, batch, output, range_, attns):
+    def _make_shard_state(self, batch, output, click_score, range_, attns):
         """ See base class for args description. """
         if getattr(batch, "alignment", None) is None:
             raise AssertionError("using -copy_attn you need to pass in "
@@ -167,11 +169,13 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         return {
             "output": output,
             "target": batch.tgt[range_[0] + 1: range_[1]],
+            "click_score": click_score,
+            "click_target": batch.tgt_item_sku[0],
             "copy_attn": attns.get("copy"),
             "align": batch.alignment[range_[0] + 1: range_[1]]
         }
 
-    def _compute_loss(self, batch, output, target, copy_attn, align):
+    def _compute_loss(self, batch, output, target, click_score, click_target, copy_attn, align):
         """
         Compute the loss. The args must match self._make_shard_state().
         Args:
@@ -201,9 +205,13 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         correct_copy = (align.data + len(self.tgt_vocab)) * correct_mask.long()
         target_data = target_data + correct_copy
 
+        loss_session = self.session_criterion(click_score, click_target[0])
+        click_predict = np.argsort(-click_score.detach())[:,0].to(click_score.device)
         # Compute sum of perplexities for stats
         loss_data = loss.sum().data.clone()
-        stats = self._stats(loss_data, scores_data, target_data)
+        stats = self._stats(loss_data, scores_data, target_data, loss_session.item(), click_predict, click_target)
+        print('session loss:{}'.format(loss_session.item()))
+        print('sentence loss:{}'.format(loss_data))
 
         if self.normalize_by_length:
             # Compute Loss as NLL divided by seq length
@@ -217,4 +225,4 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         else:
             loss = loss.sum()
 
-        return loss, stats
+        return loss + loss_session, stats

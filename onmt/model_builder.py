@@ -15,6 +15,7 @@ from onmt.encoders.cnn_encoder import CNNEncoder
 from onmt.encoders.mean_encoder import MeanEncoder
 from onmt.encoders.audio_encoder import AudioEncoder
 from onmt.encoders.image_encoder import ImageEncoder
+from onmt.encoders.session_encoder import SessionEncoder
 
 from onmt.decoders.decoder import InputFeedRNNDecoder, StdRNNDecoder
 from onmt.decoders.transformer import TransformerDecoder
@@ -25,7 +26,7 @@ from onmt.utils.misc import use_gpu
 from onmt.utils.logging import logger
 
 
-def build_embeddings(opt, word_dict, feature_dicts, for_encoder=True):
+def build_embeddings(opt, word_dict, feature_dicts, for_encoder=True, for_user=False):
     """
     Build an Embeddings instance.
     Args:
@@ -34,10 +35,13 @@ def build_embeddings(opt, word_dict, feature_dicts, for_encoder=True):
         feature_dicts([Vocab], optional): a list of feature dictionary.
         for_encoder(bool): build Embeddings for encoder or decoder?
     """
-    if for_encoder:
-        embedding_dim = opt.src_word_vec_size
+    if for_user:
+        embedding_dim = 100
     else:
-        embedding_dim = opt.tgt_word_vec_size
+        if for_encoder:
+            embedding_dim = opt.src_word_vec_size
+        else:
+            embedding_dim = opt.tgt_word_vec_size
 
     word_padding_idx = word_dict.stoi[inputters.PAD_WORD]
     num_word_embeddings = len(word_dict)
@@ -158,6 +162,16 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
     assert model_opt.model_type in ["text", "img", "audio"], \
         ("Unsupported model type %s" % (model_opt.model_type))
 
+    # Build Session Encoder.
+    item_embeddings = build_embeddings(model_opt,fields["src_item_sku"].vocab,[], for_user=True)
+    user_log_embeddings = build_embeddings(model_opt,fields["src_user_log"].vocab,[], for_user=True)
+    user_op_embeddings = build_embeddings(model_opt,fields["src_operator"].vocab,[], for_user=True)
+    user_site_cy_embeddings = build_embeddings(model_opt,fields["src_site_cy"].vocab,[], for_user=True)
+    user_site_pro_embeddings = build_embeddings(model_opt,fields["src_site_pro"].vocab,[], for_user=True)
+    user_site_ct_embeddings = build_embeddings(model_opt,fields["src_site_ct"].vocab,[], for_user=True)
+    session_encoder = SessionEncoder(item_embeddings, user_log_embeddings, user_op_embeddings,
+                                     user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings)
+
     # Build encoder.
     if model_opt.model_type == "text":
         src_dict = fields["src"].vocab
@@ -202,7 +216,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
 
     # Build NMTModel(= encoder + decoder).
     device = torch.device("cuda" if gpu else "cpu")
-    model = onmt.models.NMTModel(encoder, decoder)
+    model = onmt.models.NMTModel(session_encoder, encoder, decoder)
     model.model_type = model_opt.model_type
 
     # Build Generator.

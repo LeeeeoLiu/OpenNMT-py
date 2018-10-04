@@ -134,22 +134,34 @@ def make_features(batch, side, data_type='text'):
     Returns:
         A sequence of src/tgt tensors with optional feature tensors
         of size (len x batch).
-    """
-    assert side in ['src', 'tgt']
-    if isinstance(batch.__dict__[side], tuple):
-        data = batch.__dict__[side][0]
-    else:
-        data = batch.__dict__[side]
+    """    
+    assert side in ['src', 'tgt', 'src_item_sku',
+                    'tgt_item_sku', 'user', 'stm']
+    if side in ['src', 'tgt']:
+        if isinstance(batch.__dict__[side], tuple):
+            data = batch.__dict__[side][0]
+        else:
+            data = batch.__dict__[side]
 
-    feat_start = side + "_feat_"
-    keys = sorted([k for k in batch.__dict__ if feat_start in k])
-    features = [batch.__dict__[k] for k in keys]
-    levels = [data] + features
+        feat_start = side + "_feat_"
+        keys = sorted([k for k in batch.__dict__ if feat_start in k])
+        features = [batch.__dict__[k] for k in keys]
+        levels = [data] + features
 
-    if data_type == 'text':
-        return torch.cat([level.unsqueeze(2) for level in levels], 2)
-    else:
-        return levels[0]
+        if data_type == 'text':
+            return torch.cat([level.unsqueeze(2) for level in levels], 2)
+        else:
+            return levels[0]
+    elif side in ['src_item_sku','tgt_item_sku']:
+        sessions = batch.__dict__[side][0]
+        return sessions
+    elif side == 'user':
+        _fields_list = ['user_log','operator','site_cy','site_pro','site_ct']
+        user = [batch.__dict__['src_'+_field][0][0] for _field in _fields_list]
+        return torch.cat([_u.unsqueeze(1) for _u in user], 1)
+    elif side == 'stm':
+        stm = batch.__dict__['src_stm']
+        return stm
 
 
 def collect_features(fields, side="src"):
@@ -338,6 +350,16 @@ def build_vocab(train_dataset_files, fields, data_type, share_vocab,
                        max_size=tgt_vocab_size,
                        min_freq=tgt_words_min_frequency)
     logger.info(" * tgt vocab size: %d." % len(fields["tgt"].vocab))
+
+    fields_list = ['session_id', 'item_sku', 'user_log',
+                   'operator', 'site_cy', 'site_pro', 'site_ct']
+
+    for _field in fields_list:
+        for _tag in ['src_', 'tgt_']:
+            _key = _tag+_field
+            _build_field_vocab(fields[_key], counter[_key])
+            logger.info(" * %s vocab size: %d." % (_key, len(fields[_key].vocab)))
+
 
     # All datasets have same num of n_tgt_features,
     # getting the last one is OK.
