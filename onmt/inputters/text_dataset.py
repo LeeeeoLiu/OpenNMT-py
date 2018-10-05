@@ -176,14 +176,43 @@ class TextDataset(DatasetBase):
             (word, features, nfeat) triples for each line.
         """
         for i, line in enumerate(text_iter):
-            line = line.strip().split()
+            sessions = line.strip('\n').split('||')
+
+            session_id = [s.split('  ')[0] for s in sessions]
+            item_sku_id = [s.split('  ')[1] for s in sessions]
+            user_log = [s.split('  ')[2] for s in sessions]
+            operator = [s.split('  ')[3] for s in sessions]
+            user_site_cy = [s.split('  ')[4] for s in sessions]
+            user_site_pro = [s.split('  ')[5] for s in sessions]
+            user_site_ct = [s.split('  ')[6] for s in sessions]
+            stm = [int(s.split('  ')[7]) for s in sessions]
+            page_ts = [int(s.split('  ')[8]) for s in sessions]
+            item_name = [s.split('  ')[9].split() for s in sessions]
+            item_comment = [s.split('  ')[10].split() for s in sessions]
+
+            line = []
             if truncate:
-                line = line[:truncate]
+                for tmp_name, tmp_comment in zip(item_name,item_comment):
+                    line.extend(tmp_name[:truncate])
+                    line.extend(tmp_comment[:truncate])
+            else:
+                for tmp_name, tmp_comment in zip(item_name,item_comment):
+                    line.extend(tmp_name)
+                    line.extend(tmp_comment)
+                    
+            words, feats, n_feats = TextDataset.extract_text_features(line)
+            example_dict = {side: words,
+                            side + "_session_id": session_id,
+                            side + "_item_sku": item_sku_id,
+                            side + "_user_log": user_log,
+                            side + "_operator": operator,
+                            side + "_site_cy": user_site_cy,
+                            side + "_site_pro": user_site_pro,
+                            side + "_site_ct": user_site_ct,
+                            side + "_stm": stm,
+                            side + "_page_ts": page_ts,
+                            "indices": i}
 
-            words, feats, n_feats = \
-                TextDataset.extract_text_features(line)
-
-            example_dict = {side: words, "indices": i}
             if feats:
                 prefix = side + "_feat_"
                 example_dict.update((prefix + str(j), f)

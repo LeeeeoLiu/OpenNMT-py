@@ -20,7 +20,7 @@ class NMTModel(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, session, user, stm, src, tgt,session_lengths, lengths, dec_state=None):
+    def forward(self, session, user, stm, src, tgt, session_lengths, lengths, dec_state=None):
         """Forward propagate a `src` and `tgt` pair for training.
         Possible initialized with a beginning decoder state.
 
@@ -42,7 +42,7 @@ class NMTModel(nn.Module):
                  * final decoder state
         """
 
-        click_score, session_final = self.session_encoder(session,user,stm,session_lengths)
+        click_score, session_final = self.session_encoder(session, user, stm, session_lengths)
 
         tgt = tgt[:-1]  # exclude last target from inputs
 

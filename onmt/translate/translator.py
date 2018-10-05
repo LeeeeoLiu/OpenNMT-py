@@ -5,6 +5,8 @@ import argparse
 import codecs
 import os
 import math
+import numpy as np
+from rouge import Rouge 
 
 import torch
 
@@ -197,7 +199,6 @@ class Translator(object):
                           window=self.window,
                           use_filter_pred=self.use_filter_pred,
                           image_channel_size=self.image_channel_size)
-
         if self.cuda:
             cur_device = "cuda"
         else:
@@ -220,9 +221,19 @@ class Translator(object):
         all_scores = []
         all_predictions = []
 
+        RecallN_correct_count = 0
+        MRR_sum = 0
+        Q_count = 0
+
+        pred_sents_list = []
+        gold_sents_list = []
+
         for batch in data_iter:
             batch_data = self.translate_batch(batch, data, fast=self.fast)
             translations = builder.from_batch(batch_data)
+            RecallN_correct_count += batch_data['Recall@20']
+            MRR_sum += batch_data['Mrr@20']
+            Q_count += batch_data['Q_count']
 
             for trans in translations:
                 all_scores += [trans.pred_scores[:self.n_best]]
@@ -237,6 +248,11 @@ class Translator(object):
                 all_predictions += [n_best_preds]
                 self.out_file.write('\n'.join(n_best_preds) + '\n')
                 self.out_file.flush()
+                
+                _pred = ' '.join(trans.pred_sents[0])
+                _gold = ' '.join(trans.gold_sent)
+                pred_sents_list.append(_pred)
+                gold_sents_list.append(_gold)
 
                 if self.verbose:
                     sent_number = next(counter)
@@ -245,7 +261,7 @@ class Translator(object):
                         self.logger.info(output)
                     else:
                         os.write(1, output.encode('utf-8'))
-
+        
                 # Debug attention.
                 if attn_debug:
                     srcs = trans.src_raw
@@ -264,6 +280,28 @@ class Translator(object):
                         output += row_format.format(word, *row) + '\n'
                         row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
                     os.write(1, output.encode('utf-8'))
+        
+        RecallN_score = ((RecallN_correct_count+0.0)/Q_count)
+        MRRN_score = ((MRR_sum+0.0)/Q_count)
+        _session_msg = 'Recall@20: {}\nMrr@20: {}'.format(RecallN_score, MRRN_score)
+        if self.logger:
+            self.logger.info(_session_msg)
+        else:
+            print(_session_msg)
+
+        rouge = Rouge()
+        scores = rouge.get_scores(pred_sents_list, gold_sents_list, avg=True)
+        _sentence_msg = 'ROUGE-1: P:{}\tR:{}\tF1:{}'.format(
+            scores['rouge-1']['p'], scores['rouge-1']['r'], scores['rouge-1']['f'])
+        _sentence_msg += '\nROUGE-2: P:{}\tR:{}\tF1:{}'.format(
+            scores['rouge-2']['p'], scores['rouge-2']['r'], scores['rouge-2']['f'])
+        _sentence_msg += '\nROUGE-L: P:{}\tR:{}\tF1:{}'.format(
+            scores['rouge-l']['p'], scores['rouge-l']['r'], scores['rouge-l']['f'])
+        
+        if self.logger:
+            self.logger.info(_sentence_msg)
+        else:
+            print(_sentence_msg)
 
         if self.report_score:
             msg = self._report_score('PRED', pred_score_total,
@@ -548,7 +586,38 @@ class Translator(object):
         if data_type == 'text':
             _, src_lengths = batch.src
 
+        src_session = inputters.make_features(batch, 'src_item_sku')
+        user = inputters.make_features(batch, 'user')
+        stm = inputters.make_features(batch, 'stm')
+        tgt_session = inputters.make_features(batch, 'tgt_item_sku')[0]
+
+        if self.data_type == 'text':
+            _, session_lengths = batch.src_item_sku
+        else:
+            session_lengths = None
+
+        click_score, session_final = self.model.session_encoder(src_session, user, stm, session_lengths)
+        _recall = 0
+        _mrr = 0
+        _q_count = 0
+
+        sorted_index_t = np.argsort(-click_score)[:,:20].to(click_score.device) # [b X 20]
+        label_t = tgt_session.unsqueeze(1).expand_as(sorted_index_t) # [b X 20]
+        _result_tensor = label_t - sorted_index_t
+        _q_count += _result_tensor.size(0)
+        _correct_count = (_result_tensor==0).nonzero().size(0)
+        if _correct_count > 0:
+            _recall += _correct_count
+            _mrr_tensor = (_result_tensor==0).nonzero()[:,1].float() + 1
+            _ones_tensor = torch.ones(_mrr_tensor.size()).float().to(click_score.device)
+            _mrr += torch.div(_ones_tensor, _mrr_tensor).sum().item()
+
         enc_states, memory_bank = self.model.encoder(src, src_lengths)
+        if isinstance(enc_states, tuple):  # LSTM
+            enc_states = tuple([enc_hid+session_final for enc_hid in enc_states])
+        else:  # GRU
+            enc_states = enc_states + session_final
+
         dec_states = self.model.decoder.init_decoder_state(
             src, memory_bank, enc_states)
 
@@ -629,6 +698,9 @@ class Translator(object):
         if "tgt" in batch.__dict__:
             ret["gold_score"] = self._run_target(batch, data)
         ret["batch"] = batch
+        ret['Recall@20'] = _recall
+        ret['Mrr@20'] = _mrr
+        ret['Q_count'] = _q_count
 
         return ret
 
@@ -667,13 +739,26 @@ class Translator(object):
         #  (i.e. log likelihood) of the target under the model
         tt = torch.cuda if self.cuda else torch
         gold_scores = tt.FloatTensor(batch.batch_size).fill_(0)
-        dec_out, _, _ = self.model.decoder(
+        dec_out, _, attn = self.model.decoder(
             tgt_in, memory_bank, dec_states, memory_lengths=src_lengths)
 
         tgt_pad = self.fields["tgt"].vocab.stoi[inputters.PAD_WORD]
-        for dec, tgt in zip(dec_out, batch.tgt[1:].data):
+        for i, (dec, tgt) in enumerate(zip(dec_out, batch.tgt[1:].data)):
             # Log prob of each word.
-            out = self.model.generator.forward(dec)
+            if not self.copy_attn:
+                out = self.model.generator.forward(dec)
+            else:
+                out = self.model.generator.forward(dec,
+                                                   attn["copy"][i],
+                                                   batch.src_map)
+                # data.collapse_copy_scores is used to seeing beam search
+                # shaped data
+                out = out.unsqueeze(0)
+                out = data.collapse_copy_scores(
+                    out, batch, self.fields["tgt"].vocab,
+                    data.src_vocabs)
+                out = out.squeeze(0)
+            out = out.log()
             tgt = tgt.unsqueeze(1)
             scores = out.data.gather(1, tgt)
             scores.masked_fill_(tgt.eq(tgt_pad), 0)
