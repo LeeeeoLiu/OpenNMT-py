@@ -263,7 +263,7 @@ class Trainer(object):
             src_session = inputters.make_features(batch, 'src_item_sku')
             user = inputters.make_features(batch, 'user')
             stm = inputters.make_features(batch, 'stm')
-            tgt_session = inputters.make_features(batch, 'tgt_item_sku')
+            # tgt_session = inputters.make_features(batch, 'tgt_item_sku')
 
             dec_state = None
             src = inputters.make_features(batch, 'src', self.data_type)
@@ -285,7 +285,7 @@ class Trainer(object):
                 if self.grad_accum_count == 1:
                     self.model.zero_grad()
                 click_score, outputs, attns, dec_state = \
-                    self.model(src_session, user, stm, src, tgt,session_lengths , src_lengths, dec_state)
+                    self.model(src_session, user, stm, src, tgt, session_lengths , src_lengths, dec_state)
 
                 # 3. Compute loss in shards for memory efficiency.
                 batch_stats = self.train_loss.sharded_compute_loss(

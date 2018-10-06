@@ -177,18 +177,19 @@ class TextDataset(DatasetBase):
         """
         for i, line in enumerate(text_iter):
             sessions = line.strip('\n').split('||')
-
-            session_id = [s.split('  ')[0] for s in sessions]
-            item_sku_id = [s.split('  ')[1] for s in sessions]
-            user_log = [s.split('  ')[2] for s in sessions]
-            operator = [s.split('  ')[3] for s in sessions]
-            user_site_cy = [s.split('  ')[4] for s in sessions]
-            user_site_pro = [s.split('  ')[5] for s in sessions]
-            user_site_ct = [s.split('  ')[6] for s in sessions]
-            stm = [int(s.split('  ')[7]) for s in sessions]
-            page_ts = [int(s.split('  ')[8]) for s in sessions]
-            item_name = [s.split('  ')[9].split() for s in sessions]
-            item_comment = [s.split('  ')[10].split() for s in sessions]
+            for s in sessions:
+                assert len(s.split('\t')) == 11
+            session_id = [s.split('\t')[0] for s in sessions]
+            item_sku_id = [s.split('\t')[1] for s in sessions]
+            user_log = [s.split('\t')[2] for s in sessions]
+            operator = [s.split('\t')[3] for s in sessions]
+            user_site_cy = [s.split('\t')[4] for s in sessions]
+            user_site_pro = [s.split('\t')[5] for s in sessions]
+            user_site_ct = [s.split('\t')[6] for s in sessions]
+            stm = [int(s.split('\t')[7]) for s in sessions]
+            page_ts = [int(s.split('\t')[8]) for s in sessions]
+            item_name = [s.split('\t')[9].split() for s in sessions]
+            item_comment = [s.split('\t')[10].split() for s in sessions]
 
             line = []
             if truncate:
@@ -217,6 +218,7 @@ class TextDataset(DatasetBase):
                 prefix = side + "_feat_"
                 example_dict.update((prefix + str(j), f)
                                     for j, f in enumerate(feats))
+            print(example_dict)
             yield example_dict, n_feats
 
     @staticmethod
@@ -327,13 +329,13 @@ class TextDataset(DatasetBase):
         with codecs.open(corpus_file, "r", "utf-8") as cf:
             sessions = cf.readline().strip('\n').split('||')
             for _s in sessions:
-                if len(_s.split('  '))!=11:
+                if len(_s.split('\t'))!=11:
                     print('error: '+ _s)
                     assert 1==0
             f_line = []
             for s in sessions:
-                f_line.extend(s.split('  ')[9].split())
-                f_line.extend(s.split('  ')[10].split())
+                f_line.extend(s.split('\t')[9].split())
+                f_line.extend(s.split('\t')[10].split())
             _, _, num_feats = TextDataset.extract_text_features(f_line)
 
         return num_feats
@@ -467,17 +469,17 @@ class ShardedTextCorpusIterator(object):
     def _example_dict_iter(self, line, index):
         sessions = line.strip('\n').split('||')
 
-        session_id = [s.split('  ')[0] for s in sessions]
-        item_sku_id = [s.split('  ')[1] for s in sessions]
-        user_log = [s.split('  ')[2] for s in sessions]
-        operator = [s.split('  ')[3] for s in sessions]
-        user_site_cy = [s.split('  ')[4] for s in sessions]
-        user_site_pro = [s.split('  ')[5] for s in sessions]
-        user_site_ct = [s.split('  ')[6] for s in sessions]
-        stm = [int(s.split('  ')[7]) for s in sessions]
-        page_ts = [int(s.split('  ')[8]) for s in sessions]
-        item_name = [s.split('  ')[9].split() for s in sessions]
-        item_comment = [s.split('  ')[10].split() for s in sessions]
+        session_id = [s.split('\t')[0] for s in sessions]
+        item_sku_id = [s.split('\t')[1] for s in sessions]
+        user_log = [s.split('\t')[2] for s in sessions]
+        operator = [s.split('\t')[3] for s in sessions]
+        user_site_cy = [s.split('\t')[4] for s in sessions]
+        user_site_pro = [s.split('\t')[5] for s in sessions]
+        user_site_ct = [s.split('\t')[6] for s in sessions]
+        stm = [int(s.split('\t')[7]) for s in sessions]
+        page_ts = [int(s.split('\t')[8]) for s in sessions]
+        item_name = [s.split('\t')[9].split() for s in sessions]
+        item_comment = [s.split('\t')[10].split() for s in sessions]
 
         line = []
 

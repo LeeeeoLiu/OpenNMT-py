@@ -11,13 +11,6 @@ print('load {}'.format(source_file))
 data = pd.read_csv(source_file, names=columns,
                    sep='\t', header=None, skiprows=1)
 
-print(data.info())
-assert 1==0
-f_columns = ['session_id', 'user_log_acct', 'operator', 'user_site_cy_name',
-             'user_site_province_name', 'user_site_city_name', 'item_name', 'comment_content']
-for _c in f_columns:
-    print('filter \"  \" in column:{}'.format(_c))
-    data[_c] = data[_c].map(lambda x: x.replace('  ',''))
 
 print('groupby ing')
 gb = data.groupby('session_id')
@@ -37,10 +30,15 @@ for side in ['train', 'valid']:
     src = []
     tgt = []
     for session in _sessions:
-        sessions_strs = session.sort_values('page_ts').to_string(columns=columns,header=False, index=False).strip('\n').split('\n')
+        session.sort_values('page_ts').to_csv('test.csv', sep='\t',columns=columns,header=False, index=False)
+        with open('test.csv', 'r')as f:
+            lines = f.readlines()
+        sessions_strs = [_l.strip('\n')  for _l in lines]
+        # sessions_strs = session.sort_values('page_ts').to_string(columns=columns,header=False, index=False).strip('\n').split('\n')
         if len(sessions_strs)>2:
             src_strs = '||'.join(sessions_strs[:-1])
             tgt_strs = sessions_strs[-1]
+            assert(len(tgt_strs.split('\t'))==11)
             src.append(src_strs)
             tgt.append(tgt_strs)
 
