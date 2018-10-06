@@ -156,7 +156,7 @@ class SessionEncoder(nn.Module):
         # self.s2crc = MConnBlock(self.shd, self.shd+self.chd,self.chd ,_ln_size=(1,self.chd))
 
     def forward(self, session, user, stm, session_lengths):
-
+        _batch = session.size(1)
         # Get Session Embedding.
         session_embed = self.items_embeddings(session.unsqueeze(2)) # len X Batch X embedding dim
 
@@ -201,6 +201,8 @@ class SessionEncoder(nn.Module):
         # Get Sequntial Represtation
         c_t = torch.cat((user_embed, c_l, c_g), 0)  # 7 x batch x embedding dim
         c_t_trans = self.ctMB(c_t.permute(1,2,0)).squeeze() # batch x embedding dim
+        if _batch == 1:
+            c_t_trans = c_t_trans.unsqueeze(0)
 
         # Get Item Embeddings
         item_indices = torch.linspace(0, self.ivs -1, steps=self.ivs).long().to(c_t.device)

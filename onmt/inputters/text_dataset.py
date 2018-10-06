@@ -218,7 +218,6 @@ class TextDataset(DatasetBase):
                 prefix = side + "_feat_"
                 example_dict.update((prefix + str(j), f)
                                     for j, f in enumerate(feats))
-            print(example_dict)
             yield example_dict, n_feats
 
     @staticmethod
@@ -468,7 +467,8 @@ class ShardedTextCorpusIterator(object):
 
     def _example_dict_iter(self, line, index):
         sessions = line.strip('\n').split('||')
-
+        for s in sessions:
+            assert len(s.split('\t')) == 11
         session_id = [s.split('\t')[0] for s in sessions]
         item_sku_id = [s.split('\t')[1] for s in sessions]
         user_log = [s.split('\t')[2] for s in sessions]
