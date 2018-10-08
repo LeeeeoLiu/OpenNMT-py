@@ -4,6 +4,7 @@ from __future__ import division
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
@@ -121,7 +122,7 @@ class MConnBlock(nn.Module):
 
 
 class SessionEncoder(nn.Module):
-    def __init__(self, item_embeddings, user_log_embeddings, user_op_embeddings, user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings, shd=100, nl=1):
+    def __init__(self, item_embeddings, user_log_embeddings, user_op_embeddings, user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings, shd=500, nl=1):
         super(SessionEncoder, self).__init__()
         
 
@@ -177,17 +178,25 @@ class SessionEncoder(nn.Module):
         # STM len  x batch
 
         packed_session_emb = session_embed
+        # sort the training data to pack sequence with a descend order
+        sorted_index = np.argsort(-np.array(session_lengths))
+        unsorted_index = torch.LongTensor(np.argsort(sorted_index))
+        sorted_session_embed = session_embed[:,sorted_index]
+        sorted_session_lengths = session_lengths[sorted_index].view(-1).tolist()
         if session_lengths is not None:
             # Lengths data is wrapped inside a Tensor.
-            session_lengths = session_lengths.view(-1).tolist()
-            packed_session_emb = pack(session_embed, session_lengths)
+            packed_session_emb = pack(sorted_session_embed, sorted_session_lengths)
 
         _, hidden_g = self.gru_g(packed_session_emb)
+        hidden_g = hidden_g[:,unsorted_index]  # (nl * num_directions, batch, hidden_size) -> (batch, ...)
         c_g = hidden_g[-1:]  # 1 X batch X embedding
 
         output_l, hidden_l = self.gru_l(packed_session_emb) 
         # hidden_l  num layzer X batch X embedding
+        hidden_l = hidden_l[:,unsorted_index]  # (nl * num_directions, batch, hidden_size) -> (batch, ...)
         unpacked_output, _ = unpack(output_l)   # len X Batch X embedding dim
+        # unsort output
+        unpacked_output = unpacked_output[:,unsorted_index]
 
         # Get Attention
         ht_ex = hidden_l[-1:].expand_as(unpacked_output)    # for computing easily [len X Batch X embedding dim]
