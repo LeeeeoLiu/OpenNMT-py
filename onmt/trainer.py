@@ -224,20 +224,28 @@ class Trainer(object):
         stats = onmt.utils.Statistics()
 
         for batch in valid_iter:
+            src_session = inputters.make_features(batch, 'src_item_sku')
+            user = inputters.make_features(batch, 'user')
+            stm = inputters.make_features(batch, 'stm')
+            # tgt_session = inputters.make_features(batch, 'tgt_item_sku')
+
             src = inputters.make_features(batch, 'src', self.data_type)
             if self.data_type == 'text':
                 _, src_lengths = batch.src
+                _, session_lengths = batch.src_item_sku
             else:
                 src_lengths = None
+                session_lengths = None
 
             tgt = inputters.make_features(batch, 'tgt')
 
             # F-prop through the model.
-            outputs, attns, _ = self.model(src, tgt, src_lengths)
+            click_score, outputs, attns, _ = self.model(
+                src_session, user, stm, src, tgt, session_lengths, src_lengths)
 
             # Compute loss.
             batch_stats = self.valid_loss.monolithic_compute_loss(
-                batch, outputs, attns)
+                batch, outputs, click_score, attns)
 
             # Update statistics.
             stats.update(batch_stats)
