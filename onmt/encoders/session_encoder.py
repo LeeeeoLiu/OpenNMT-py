@@ -122,7 +122,7 @@ class MConnBlock(nn.Module):
 
 
 class SessionEncoder(nn.Module):
-    def __init__(self, item_embeddings, user_log_embeddings, user_op_embeddings, user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings, shd=500, nl=1):
+    def __init__(self, item_embeddings, user_log_embeddings, user_op_embeddings, user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings, shd=100, nl=1):
         super(SessionEncoder, self).__init__()
         
 
@@ -140,7 +140,7 @@ class SessionEncoder(nn.Module):
         self.shd = shd  # session hidden dim
         self.ivs = self.items_embeddings.emb_luts[0].num_embeddings  # item vocab size
         self.nl = nl    # num layer
-        self.chd = 500
+        self.chd = 100
         
 
         # self.user_embed = UIEmbedding(_device)
@@ -151,8 +151,8 @@ class SessionEncoder(nn.Module):
         self.atten_1 = nn.Linear(self.shd, self.shd)
         self.atten_2 = nn.Linear(self.shd, self.shd)
         self.bl = nn.Linear(self.shd, 1)
-        self.ctMB = MConnBlock(self.nl*2+5, self.nl*2, 1, _ln_size=(self.shd,1))
-        self.ctTS = MConnBlock(self.shd, self.shd+self.chd,self.chd*2 ,_ln_size=(1,self.chd*2))
+        self.ctMB = MConnBlock((self.nl*2+5)*self.sed, (self.nl*2)*self.sed, self.sed)
+        self.ctTS = MConnBlock(self.shd, self.shd+self.chd,self.chd*4 ,_ln_size=(1,self.chd*4))
         # self.ierc = MConnBlock(self.sed, self.sed+self.shd, self.shd)
         # self.s2crc = MConnBlock(self.shd, self.shd+self.chd,self.chd ,_ln_size=(1,self.chd))
 
@@ -209,7 +209,7 @@ class SessionEncoder(nn.Module):
 
         # Get Sequntial Represtation
         c_t = torch.cat((user_embed, c_l, c_g), 0)  # 7 x batch x embedding dim
-        c_t_trans = self.ctMB(c_t.permute(1,2,0)).squeeze() # batch x embedding dim
+        c_t_trans = self.ctMB(c_t.permute(1, 0, 2).contiguous().view(c_t.size(1), -1)) # batch x embedding dim
         if _batch == 1:
             c_t_trans = c_t_trans.unsqueeze(0)
 
@@ -219,6 +219,6 @@ class SessionEncoder(nn.Module):
 
         # Calculate Click Score
         click_score = F.log_softmax(torch.mm(c_t_trans, item_embeddings.permute(1,0)), dim=1) # [b X ivs]
-        concate_ret = (self.ctTS(c_t_trans.unsqueeze(1)).view(click_score.size(0),2,-1)).permute(1,0,2)   # [2 X b X chd]
+        concate_ret = (self.ctTS(c_t_trans.unsqueeze(1)).view(click_score.size(0),4,-1)).permute(1,0,2)   # [4 X b X chd]
 
         return click_score, concate_ret

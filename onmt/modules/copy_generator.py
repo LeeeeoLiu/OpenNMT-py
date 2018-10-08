@@ -225,4 +225,4 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         else:
             loss = loss.sum()
 
-        return loss + loss_session, stats
+        return  loss + 100 * loss_session, stats

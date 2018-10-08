@@ -36,7 +36,7 @@ def build_embeddings(opt, word_dict, feature_dicts, for_encoder=True, for_user=F
         for_encoder(bool): build Embeddings for encoder or decoder?
     """
     if for_user:
-        embedding_dim = 500
+        embedding_dim = 100
     else:
         if for_encoder:
             embedding_dim = opt.src_word_vec_size
