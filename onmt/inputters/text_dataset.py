@@ -84,7 +84,7 @@ class TextDataset(DatasetBase):
 
         def filter_pred(example):
             """ ? """
-            return 0 < len(example.src_item_sku) <= 30
+            return 0 < len(example.src_item_sku) < 20
 
         filter_pred = filter_pred if use_filter_pred else lambda x: True
 
