@@ -14,6 +14,11 @@ import argparse
 from rouge import Rouge
 import os
 
+import sys 
+reload(sys)
+sys.setdefaultencoding('utf-8') 
+sys.setrecursionlimit(1000000)
+
 def LexRank_Text(originalText, LANGUAGE="chinese"):
     """Get LexRank output from a text.
 
@@ -38,15 +43,16 @@ def LexRank_Text(originalText, LANGUAGE="chinese"):
 def read_and_filter(_file_path):
     with open(_file_path, 'r') as f:
         _new_lines = []
+        _session_length = []
         for line in f:
-            line = line.decode('utf-8')
+            #print('----')
+            #line = line.decode('utf-8')
             sessions = line.strip('\n').split('||')
             for s in sessions:
                 assert len(s.split('\t')) == 11
             item_name = [s.split('\t')[9].split() for s in sessions]
             item_comment = [s.split('\t')[10].split() for s in sessions]
             _new_line = []
-            _session_length = []
             for tmp_name, tmp_comment in zip(item_name, item_comment):
                 _new_line.extend(tmp_name)
                 _new_line.extend(tmp_comment)
@@ -56,7 +62,9 @@ def read_and_filter(_file_path):
         
 
 def write_file(_lines, _path):
-    _lines = [_line.encode('utf-8') for _line in _lines]
+    #print(_lines)
+    #_lines = [_line.encode('utf-8') for _line in _lines]
+    #print(_lines)
     with open(_path, 'w') as f:
         f.write('\n'.join(_lines))
 
@@ -74,16 +82,18 @@ if __name__ == '__main__':
                         help="Baseline Method for Explanation Generation.")
     parser.add_argument('-save', type=str, help="Path to save the output file.")
     parser.add_argument('-test', type=int,default=-1, help='Test the code with a small number of examples.')
+    parser.add_argument('-re', type=bool, default= False, help="Reprocess data.")
     args = parser.parse_args()
     LANGUAGE = "chinese"
 
     assert args.baseline in ['lexrank']
     if args.baseline == 'lexrank':
-        if os.path.exists(args.save+'/lexrank_src.txt'):
+        if os.path.exists(args.save+'/lexrank_src.txt') and os.path.exists(args.save+'/lexrank_tgt.txt') and args.re==False:
             src_lines = read_file(args.save+'/lexrank_src.txt')
             tgt_lines = read_file(args.save+'/lexrank_tgt.txt')
         else:
             _src_lines, _lengths = read_and_filter(args.src)
+            #print(_lengths)
             _tgt_lines, _ = read_and_filter(args.tgt)
             src_lines = []
             tgt_lines = []
@@ -102,7 +112,7 @@ if __name__ == '__main__':
             tgt_lines = tgt_lines[0:args.test]
         for i, _line in enumerate(src_lines):
             print('process: {}/{}'.format(i,len(src_lines)))
-            _sum_line = LexRank_Text(_line, LANGUAGE) if LexRank_Text(_line, LANGUAGE) != None else ''
+            _sum_line = LexRank_Text(_line, LANGUAGE) if LexRank_Text(_line, LANGUAGE) != None else 'None'
             _sum_lines.append(_sum_line)
 
         assert len(_sum_lines) == len(tgt_lines)
