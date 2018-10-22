@@ -148,7 +148,8 @@ class LossComputeBase(nn.Module):
 
         return batch_stats
 
-    def _stats(self, loss, scores, target, session_loss, session_score, session_target):
+    #def _stats(self, loss, scores, target, session_loss, session_score, session_target):
+    def _stats(self, loss, scores, target):
         """
         Args:
             loss (:obj:`FloatTensor`): the loss computed by the loss criterion.

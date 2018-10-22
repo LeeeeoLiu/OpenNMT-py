@@ -67,6 +67,8 @@ class CopyGenerator(nn.Module):
         self.tgt_dict = tgt_dict
         self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
+        self.session_weight = session_weight
+        self.explanation_weight = explanation_weight
 
     def forward(self, hidden, attn, src_map):
         """
@@ -171,13 +173,13 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         return {
             "output": output,
             "target": batch.tgt[range_[0] + 1: range_[1]],
-            "click_score": click_score,
-            "click_target": batch.tgt_item_sku[0],
             "copy_attn": attns.get("copy"),
-            "align": batch.alignment[range_[0] + 1: range_[1]]
+            "align": batch.alignment[range_[0] + 1: range_[1]],
+            "click_score": click_score,
+            "click_target": batch.tgt_item_sku[0]
         }
 
-    def _compute_loss(self, batch, output, target, click_score, click_target, copy_attn, align):
+    def _compute_loss(self, batch, output, target, copy_attn, align, click_score=None, click_target=None):
         """
         Compute the loss. The args must match self._make_shard_state().
         Args:
@@ -215,7 +217,8 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
             click_predict = None
         # Compute sum of perplexities for stats
         loss_data = loss.sum().data.clone()
-        stats = self._stats(loss_data, scores_data, target_data, loss_session.item(), click_predict, click_target)
+        #stats = self._stats(loss_data, scores_data, target_data, loss_session.item(), click_predict, click_target)
+        stats = self._stats(loss_data, scores_data, target_data)
 
         if self.normalize_by_length:
             # Compute Loss as NLL divided by seq length

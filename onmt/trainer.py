@@ -317,7 +317,8 @@ class Trainer(object):
                                  and p.grad is not None]
                         onmt.utils.distributed.all_reduce_and_rescale_tensors(
                             grads, float(1))
-                    self.s_optim.step()
+                    if self.s_optim is not None:
+                        self.s_optim.step()
                     self.e_optim.step()
                     self.d_optim.step()
 
@@ -334,7 +335,8 @@ class Trainer(object):
                          and p.grad is not None]
                 onmt.utils.distributed.all_reduce_and_rescale_tensors(
                     grads, float(1))
-            self.s_optim.step()
+            if self.s_optim is not None:
+                self.s_optim.step()
             self.e_optim.step()
             self.d_optim.step()
 
