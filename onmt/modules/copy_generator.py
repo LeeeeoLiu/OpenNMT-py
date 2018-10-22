@@ -60,7 +60,7 @@ class CopyGenerator(nn.Module):
 
     """
 
-    def __init__(self, input_size, tgt_dict):
+    def __init__(self, input_size, tgt_dict, session_weight, explanation_weight):
         super(CopyGenerator, self).__init__()
         self.linear = nn.Linear(input_size, len(tgt_dict))
         self.linear_copy = nn.Linear(input_size, 1)
@@ -159,6 +159,8 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         self.criterion = CopyGeneratorCriterion(len(tgt_vocab), force_copy,
                                                 self.padding_idx)
         self.session_criterion = nn.CrossEntropyLoss()
+        self.session_weight = generator.session_weight
+        self.explanation_weight = generator.explanation_weight
 
     def _make_shard_state(self, batch, output, click_score, range_, attns):
         """ See base class for args description. """
@@ -205,13 +207,15 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
         correct_copy = (align.data + len(self.tgt_vocab)) * correct_mask.long()
         target_data = target_data + correct_copy
 
-        loss_session = self.session_criterion(click_score, click_target[0])
-        click_predict = np.argsort(-click_score.detach())[:,0].to(click_score.device)
+        if click_score is not None:
+            loss_session = self.session_criterion(click_score, click_target[0])
+            click_predict = np.argsort(-click_score.detach())[:,0].to(click_score.device)
+        else:
+            loss_session = None
+            click_predict = None
         # Compute sum of perplexities for stats
         loss_data = loss.sum().data.clone()
         stats = self._stats(loss_data, scores_data, target_data, loss_session.item(), click_predict, click_target)
-        print('session loss:{}'.format(loss_session.item()))
-        print('sentence loss:{}'.format(loss_data))
 
         if self.normalize_by_length:
             # Compute Loss as NLL divided by seq length
@@ -224,5 +228,12 @@ class CopyGeneratorLossCompute(loss.LossComputeBase):
             loss = torch.div(loss, tgt_lens).sum()
         else:
             loss = loss.sum()
-
-        return  loss + 100 * loss_session, stats
+        if click_score is not None:
+            print('session loss:{}'.format(loss_session.item()))
+            print('sentence loss:{}'.format(loss_data))
+            print('all loss:{}'.format(loss_session.item()*500 + loss_data))
+            return self.session_weight * loss_session + self.explanation_weight * loss, stats
+        else:
+            print('sentence loss:{}'.format(loss_data))
+            
+            return loss, stats

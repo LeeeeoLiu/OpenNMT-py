@@ -6,7 +6,7 @@ from torch.nn.utils import clip_grad_norm_
 from onmt.utils import use_gpu
 
 
-def build_optim(model, opt, checkpoint):
+def build_optim(model, opt, checkpoint, optim_tag):
     """ Build optimizer """
     saved_optimizer_state_dict = None
 
@@ -19,17 +19,30 @@ def build_optim(model, opt, checkpoint):
         # optim.optimizer.state_dict()
         saved_optimizer_state_dict = optim.optimizer.state_dict()
     else:
-        optim = Optimizer(
-            opt.optim, opt.learning_rate, opt.max_grad_norm,
-            lr_decay=opt.learning_rate_decay,
-            start_decay_steps=opt.start_decay_steps,
-            decay_steps=opt.decay_steps,
-            beta1=opt.adam_beta1,
-            beta2=opt.adam_beta2,
-            adagrad_accum=opt.adagrad_accumulator_init,
-            decay_method=opt.decay_method,
-            warmup_steps=opt.warmup_steps,
-            model_size=opt.rnn_size)
+        if optim_tag == 'session':
+            optim = Optimizer(
+                opt.s_optim, opt.s_learning_rate, opt.max_grad_norm,
+                lr_decay=opt.s_learning_rate_decay,
+                start_decay_steps=opt.s_start_decay_steps,
+                decay_steps=opt.s_decay_steps,
+                beta1=opt.adam_beta1,
+                beta2=opt.adam_beta2,
+                adagrad_accum=opt.adagrad_accumulator_init,
+                decay_method=opt.s_decay_method,
+                warmup_steps=opt.s_warmup_steps,
+                model_size=opt.rnn_size)
+        else:
+            optim = Optimizer(
+                opt.optim, opt.learning_rate, opt.max_grad_norm,
+                lr_decay=opt.learning_rate_decay,
+                start_decay_steps=opt.start_decay_steps,
+                decay_steps=opt.decay_steps,
+                beta1=opt.adam_beta1,
+                beta2=opt.adam_beta2,
+                adagrad_accum=opt.adagrad_accumulator_init,
+                decay_method=opt.decay_method,
+                warmup_steps=opt.warmup_steps,
+                model_size=opt.rnn_size)
 
     # Stage 1:
     # Essentially optim.set_parameters (re-)creates and optimizer using
@@ -38,7 +51,14 @@ def build_optim(model, opt, checkpoint):
     # Importantly, this method does not yet load the optimizer state, as
     # essentially it builds a new optimizer with empty optimizer state and
     # parameters from the model.
-    optim.set_parameters(model.named_parameters())
+
+    assert optim_tag in ['session', 'encoder', 'decoder']
+    if optim_tag == 'session':
+        optim.set_parameters(model.session_encoder.named_parameters())
+    elif optim_tag == 'encoder':
+        optim.set_parameters(model.encoder.named_parameters())
+    elif optim_tag == 'decoder':
+        optim.set_parameters(model.decoder.named_parameters())
 
     if opt.train_from:
         # Stage 2: In this stage, which is only performed when loading an

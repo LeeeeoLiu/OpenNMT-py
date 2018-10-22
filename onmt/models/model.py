@@ -41,16 +41,24 @@ class NMTModel(nn.Module):
                  * dictionary attention dists of `[tgt_len x batch x src_len]`
                  * final decoder state
         """
-
-        click_score, session_final = self.session_encoder(session, user, stm, session_lengths)
-
+        if self.session_encoder is not None:
+            click_score, session_final = self.session_encoder(session, user, stm, session_lengths)
+        else:
+            click_score = None
+            session_final = None
         tgt = tgt[:-1]  # exclude last target from inputs
 
         enc_final, memory_bank = self.encoder(src, lengths)
-        if isinstance(enc_final, tuple):  # LSTM
-            enc_final = tuple([enc_hid+session_final for enc_hid in enc_final])
-        else:  # GRU
-            enc_final = enc_final + session_final
+        if self.session_encoder is not None:
+            if isinstance(enc_final, tuple):  # LSTM
+                enc_final = tuple([enc_hid+session_final for enc_hid in enc_final])
+            else:  # GRU
+                enc_final = enc_final + session_final
+        else:
+            if isinstance(enc_final, tuple):  # LSTM
+                enc_final = tuple([enc_hid for enc_hid in enc_final])
+            else:  # GRU
+                enc_final = enc_final
         enc_state = \
             self.decoder.init_decoder_state(src, memory_bank, enc_final)
         decoder_outputs, dec_state, attns = \

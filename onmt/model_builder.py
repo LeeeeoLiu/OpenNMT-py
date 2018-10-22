@@ -162,40 +162,12 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
     assert model_opt.model_type in ["text", "img", "audio"], \
         ("Unsupported model type %s" % (model_opt.model_type))
 
-    # Build Session Encoder.
-    item_embeddings = build_embeddings(model_opt,fields["src_item_sku"].vocab,[], for_user=True)
-    user_log_embeddings = build_embeddings(model_opt,fields["src_user_log"].vocab,[], for_user=True)
-    user_op_embeddings = build_embeddings(model_opt,fields["src_operator"].vocab,[], for_user=True)
-    user_site_cy_embeddings = build_embeddings(model_opt,fields["src_site_cy"].vocab,[], for_user=True)
-    user_site_pro_embeddings = build_embeddings(model_opt,fields["src_site_pro"].vocab,[], for_user=True)
-    user_site_ct_embeddings = build_embeddings(model_opt,fields["src_site_ct"].vocab,[], for_user=True)
-    session_encoder = SessionEncoder(item_embeddings, user_log_embeddings, user_op_embeddings,
-                                     user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings)
-
+    
     # Build encoder.
-    if model_opt.model_type == "text":
-        src_dict = fields["src"].vocab
-        feature_dicts = inputters.collect_feature_vocabs(fields, 'src')
-        src_embeddings = build_embeddings(model_opt, src_dict, feature_dicts)
-        encoder = build_encoder(model_opt, src_embeddings)
-    elif model_opt.model_type == "img":
-        if ("image_channel_size" not in model_opt.__dict__):
-            image_channel_size = 3
-        else:
-            image_channel_size = model_opt.image_channel_size
-
-        encoder = ImageEncoder(model_opt.enc_layers,
-                               model_opt.brnn,
-                               model_opt.rnn_size,
-                               model_opt.dropout,
-                               image_channel_size)
-    elif model_opt.model_type == "audio":
-        encoder = AudioEncoder(model_opt.enc_layers,
-                               model_opt.brnn,
-                               model_opt.rnn_size,
-                               model_opt.dropout,
-                               model_opt.sample_rate,
-                               model_opt.window_size)
+    src_dict = fields["src"].vocab
+    feature_dicts = inputters.collect_feature_vocabs(fields, 'src')
+    src_embeddings = build_embeddings(model_opt, src_dict, feature_dicts)
+    encoder = build_encoder(model_opt, src_embeddings)
 
     # Build decoder.
     tgt_dict = fields["tgt"].vocab
@@ -214,25 +186,34 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
 
     decoder = build_decoder(model_opt, tgt_embeddings)
 
-    # Build NMTModel(= encoder + decoder).
+    # Build NMTModel(= [session encoder] + encoder + decoder).
     device = torch.device("cuda" if gpu else "cpu")
+
+    if model_opt.experiment == 'session':
+        # Build Session Encoder.
+        item_embeddings = build_embeddings(
+            model_opt, fields["src_item_sku"].vocab, [], for_user=True)
+        user_log_embeddings = build_embeddings(
+            model_opt, fields["src_user_log"].vocab, [], for_user=True)
+        user_op_embeddings = build_embeddings(
+            model_opt, fields["src_operator"].vocab, [], for_user=True)
+        user_site_cy_embeddings = build_embeddings(
+            model_opt, fields["src_site_cy"].vocab, [], for_user=True)
+        user_site_pro_embeddings = build_embeddings(
+            model_opt, fields["src_site_pro"].vocab, [], for_user=True)
+        user_site_ct_embeddings = build_embeddings(
+            model_opt, fields["src_site_ct"].vocab, [], for_user=True)
+        session_encoder = SessionEncoder(item_embeddings, user_log_embeddings, user_op_embeddings,
+                                         user_site_cy_embeddings, user_site_pro_embeddings, user_site_ct_embeddings)
+    else:
+        session_encoder = None
+
     model = onmt.models.NMTModel(session_encoder, encoder, decoder)
     model.model_type = model_opt.model_type
 
-    # Build Generator.
-    if not model_opt.copy_attn:
-        if model_opt.generator_function == "sparsemax":
-            gen_func = onmt.modules.sparse_activations.LogSparsemax(dim=-1)
-        else:
-            gen_func = nn.LogSoftmax(dim=-1)
-        generator = nn.Sequential(
-            nn.Linear(model_opt.rnn_size, len(fields["tgt"].vocab)), gen_func
-        )
-        if model_opt.share_decoder_embeddings:
-            generator[0].weight = decoder.embeddings.word_lut.weight
-    else:
-        generator = CopyGenerator(model_opt.rnn_size,
-                                  fields["tgt"].vocab)
+    # Build Generator. Copy Generator.
+    generator = CopyGenerator(
+        model_opt.rnn_size, fields["tgt"].vocab, model_opt.session_weight, model_opt.explanation_weight)
 
     # Load the model states from checkpoint or initialize them.
     if checkpoint is not None:

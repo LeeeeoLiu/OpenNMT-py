@@ -260,6 +260,14 @@ def train_opts(parser):
     group.add_argument('-keep_checkpoint', type=int, default=-1,
                        help="""Keep X checkpoints (negative: keep all)""")
 
+    # Multi Task
+    group.add_argument('-experiment', type=str, default='session',
+                       help="""session for our model while opennmt for baseline""")
+    group.add_argument('-session_weight', type=float, default=1,
+                       help="""the weight for the click prediction part sub task""")
+    group.add_argument('-explanation_weight', type=float, default=0.01,
+                       help="""the weight for the explanation generation part sub task""")
+
     # GPU
     group.add_argument('-gpuid', default=[], nargs='+', type=int,
                        help="Deprecated see world_size and gpu_ranks.")
@@ -343,6 +351,10 @@ def train_opts(parser):
                        choices=['sgd', 'adagrad', 'adadelta', 'adam',
                                 'sparseadam'],
                        help="""Optimization method.""")
+    group.add_argument('-s_optim', default='sgd',
+                       choices=['sgd', 'adagrad', 'adadelta', 'adam',
+                                'sparseadam'],
+                       help="""Optimization method for session encoder.""")
     group.add_argument('-adagrad_accumulator_init', type=float, default=0,
                        help="""Initializes the accumulator values in adagrad.
                        Mirrors the initial_accumulator_value option
@@ -401,6 +413,27 @@ def train_opts(parser):
     group.add_argument('-decay_method', type=str, default="",
                        choices=['noam'], help="Use a custom decay rate.")
     group.add_argument('-warmup_steps', type=int, default=4000,
+                       help="""Number of warmup steps for custom decay.""")
+
+
+    group.add_argument('-s_learning_rate', type=float, default=1.0,
+                       help="""Starting learning rate.
+                       Recommended settings: sgd = 1, adagrad = 0.1,
+                       adadelta = 1, adam = 0.001""")
+    group.add_argument('-s_learning_rate_decay', type=float, default=0.5,
+                       help="""If update_learning_rate, decay learning rate by
+                       this much if (i) perplexity does not decrease on the
+                       validation set or (ii) steps have gone past
+                       start_decay_steps""")
+    group.add_argument('-s_start_decay_steps', type=int, default=50000,
+                       help="""Start decaying every decay_steps after
+                       start_decay_steps""")
+    group.add_argument('-s_decay_steps', type=int, default=10000,
+                       help="""Decay every decay_steps""")
+
+    group.add_argument('-s_decay_method', type=str, default="",
+                       choices=['noam'], help="Use a custom decay rate.")
+    group.add_argument('-s_warmup_steps', type=int, default=4000,
                        help="""Number of warmup steps for custom decay.""")
 
     group = parser.add_argument_group('Logging')

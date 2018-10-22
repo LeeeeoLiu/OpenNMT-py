@@ -29,14 +29,17 @@ def _check_save_model_path(opt):
 
 def _tally_parameters(model):
     n_params = sum([p.nelement() for p in model.parameters()])
+    session_enc = 0
     enc = 0
     dec = 0
     for name, param in model.named_parameters():
-        if 'encoder' in name:
+        if 'session_encoder' in name:
+            session_enc += param.nelement()
+        elif 'encoder' in name:
             enc += param.nelement()
         elif 'decoder' or 'generator' in name:
             dec += param.nelement()
-    return n_params, enc, dec
+    return n_params, session_enc, enc, dec
 
 
 def training_opt_postprocessing(opt, device_id):
@@ -108,20 +111,28 @@ def main(opt, device_id):
 
     # Build model.
     model = build_model(model_opt, opt, fields, checkpoint)
-    n_params, enc, dec = _tally_parameters(model)
+    n_params, session_enc, enc, dec = _tally_parameters(model)
+    logger.info('session encoder: %d' % session_enc)
     logger.info('encoder: %d' % enc)
     logger.info('decoder: %d' % dec)
     logger.info('* number of parameters: %d' % n_params)
     _check_save_model_path(opt)
 
     # Build optimizer.
-    optim = build_optim(model, opt, checkpoint)
+    if opt.experiment == 'session':
+        session_optim = build_optim(model, opt, checkpoint, 'session')
+    else:
+        session_optim = None
+    encoder_optim = build_optim(model, opt, checkpoint, 'encoder')
+    decoder_optim = build_optim(model, opt, checkpoint, 'decoder')
+    
 
     # Build model saver
-    model_saver = build_model_saver(model_opt, opt, model, fields, optim)
+    model_saver = build_model_saver(
+        model_opt, opt, model, fields, session_optim, encoder_optim, decoder_optim)
 
-    trainer = build_trainer(opt, device_id, model, fields,
-                            optim, data_type, model_saver=model_saver)
+    trainer = build_trainer(opt, device_id, model, fields, session_optim,
+                            encoder_optim, decoder_optim, data_type, model_saver=model_saver)
 
     def train_iter_fct(): return build_dataset_iter(
         lazily_load_dataset("train", opt), fields, opt)

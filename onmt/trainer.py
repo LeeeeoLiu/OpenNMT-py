@@ -17,8 +17,7 @@ import onmt.utils
 from onmt.utils.logging import logger
 
 
-def build_trainer(opt, device_id, model, fields,
-                  optim, data_type, model_saver=None):
+def build_trainer(opt, device_id, model, fields, s_optim, e_optim, d_optim, data_type, model_saver=None):
     """
     Simplify `Trainer` creation based on user `opt`s*
 
@@ -50,7 +49,7 @@ def build_trainer(opt, device_id, model, fields,
     gpu_verbose_level = opt.gpu_verbose_level
 
     report_manager = onmt.utils.build_report_manager(opt)
-    trainer = onmt.Trainer(model, train_loss, valid_loss, optim, trunc_size,
+    trainer = onmt.Trainer(model, train_loss, valid_loss, s_optim, e_optim, d_optim, trunc_size,
                            shard_size, data_type, norm_method,
                            grad_accum_count, n_gpu, gpu_rank,
                            gpu_verbose_level, report_manager,
@@ -83,7 +82,7 @@ class Trainer(object):
                 Thus nothing will be saved if this parameter is None
     """
 
-    def __init__(self, model, train_loss, valid_loss, optim,
+    def __init__(self, model, train_loss, valid_loss, s_optim, e_optim, d_optim,
                  trunc_size=0, shard_size=32, data_type='text',
                  norm_method="sents", grad_accum_count=1, n_gpu=1, gpu_rank=1,
                  gpu_verbose_level=0, report_manager=None, model_saver=None):
@@ -91,7 +90,9 @@ class Trainer(object):
         self.model = model
         self.train_loss = train_loss
         self.valid_loss = valid_loss
-        self.optim = optim
+        self.s_optim = s_optim
+        self.e_optim = e_optim
+        self.d_optim = d_optim
         self.trunc_size = trunc_size
         self.shard_size = shard_size
         self.data_type = data_type
@@ -132,7 +133,7 @@ class Trainer(object):
         """
         logger.info('Start training...')
 
-        step = self.optim._step + 1
+        step = self.e_optim._step + 1    
         true_batchs = []
         accum = 0
         normalization = 0
@@ -178,7 +179,7 @@ class Trainer(object):
 
                         report_stats = self._maybe_report_training(
                             step, train_steps,
-                            self.optim.learning_rate,
+                            self.e_optim.learning_rate,
                             report_stats)
 
                         true_batchs = []
@@ -197,7 +198,7 @@ class Trainer(object):
                             if self.gpu_verbose_level > 0:
                                 logger.info('GpuRank %d: report stat step %d'
                                             % (self.gpu_rank, step))
-                            self._report_step(self.optim.learning_rate,
+                            self._report_step(self.e_optim.learning_rate,
                                               step, valid_stats=valid_stats)
 
                         if self.gpu_rank == 0:
@@ -224,19 +225,21 @@ class Trainer(object):
         stats = onmt.utils.Statistics()
 
         for batch in valid_iter:
-            src_session = inputters.make_features(batch, 'src_item_sku')
-            user = inputters.make_features(batch, 'user')
-            stm = inputters.make_features(batch, 'stm')
+            if self.s_optim is not None:
+                src_session = inputters.make_features(batch, 'src_item_sku')
+                user = inputters.make_features(batch, 'user')
+                stm = inputters.make_features(batch, 'stm')
+                _, session_lengths = batch.src_item_sku
+            else:
+                src_session = None
+                user = None
+                stm = None
+                session_lengths = None
             # tgt_session = inputters.make_features(batch, 'tgt_item_sku')
 
             src = inputters.make_features(batch, 'src', self.data_type)
-            if self.data_type == 'text':
-                _, src_lengths = batch.src
-                _, session_lengths = batch.src_item_sku
-            else:
-                src_lengths = None
-                session_lengths = None
-
+            _, src_lengths = batch.src
+    
             tgt = inputters.make_features(batch, 'tgt')
 
             # F-prop through the model.
@@ -268,20 +271,23 @@ class Trainer(object):
             else:
                 trunc_size = target_size
 
-            src_session = inputters.make_features(batch, 'src_item_sku')
-            user = inputters.make_features(batch, 'user')
-            stm = inputters.make_features(batch, 'stm')
+            if self.s_optim is not None:
+                src_session = inputters.make_features(batch, 'src_item_sku')
+                user = inputters.make_features(batch, 'user')
+                stm = inputters.make_features(batch, 'stm')
+                _, session_lengths = batch.src_item_sku
+            else:
+                src_session = None
+                user = None
+                stm = None
+                session_lengths = None
+                
             # tgt_session = inputters.make_features(batch, 'tgt_item_sku')
 
             dec_state = None
             src = inputters.make_features(batch, 'src', self.data_type)
-            if self.data_type == 'text':
-                _, src_lengths = batch.src
-                _, session_lengths = batch.src_item_sku
-                report_stats.n_src_words += src_lengths.sum().item()
-            else:
-                src_lengths = None
-                session_lengths = None
+            _, src_lengths = batch.src
+            report_stats.n_src_words += src_lengths.sum().item()
 
             tgt_outer = inputters.make_features(batch, 'tgt')
 
@@ -311,7 +317,9 @@ class Trainer(object):
                                  and p.grad is not None]
                         onmt.utils.distributed.all_reduce_and_rescale_tensors(
                             grads, float(1))
-                    self.optim.step()
+                    self.s_optim.step()
+                    self.e_optim.step()
+                    self.d_optim.step()
 
                 # If truncated, don't backprop fully.
                 if dec_state is not None:
@@ -326,7 +334,9 @@ class Trainer(object):
                          and p.grad is not None]
                 onmt.utils.distributed.all_reduce_and_rescale_tensors(
                     grads, float(1))
-            self.optim.step()
+            self.s_optim.step()
+            self.e_optim.step()
+            self.d_optim.step()
 
     def _start_report_manager(self, start_time=None):
         """

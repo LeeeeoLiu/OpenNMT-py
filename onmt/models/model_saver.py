@@ -8,14 +8,9 @@ from collections import deque
 from onmt.utils.logging import logger
 
 
-def build_model_saver(model_opt, opt, model, fields, optim):
-    model_saver = ModelSaver(opt.save_model,
-                             model,
-                             model_opt,
-                             fields,
-                             optim,
-                             opt.save_checkpoint_steps,
-                             opt.keep_checkpoint)
+def build_model_saver(model_opt, opt, model, fields, s_optim, e_optim, d_optim):
+    model_saver = ModelSaver(opt.save_model, model, model_opt, fields, s_optim,
+                             e_optim, d_optim, opt.save_checkpoint_steps, opt.keep_checkpoint)
     return model_saver
 
 
@@ -27,13 +22,15 @@ class ModelSaverBase(object):
             * `_rm_checkpoint
     """
 
-    def __init__(self, base_path, model, model_opt, fields, optim,
+    def __init__(self, base_path, model, model_opt, fields, s_optim, e_optim, d_optim,
                  save_checkpoint_steps, keep_checkpoint=-1):
         self.base_path = base_path
         self.model = model
         self.model_opt = model_opt
         self.fields = fields
-        self.optim = optim
+        self.s_optim = s_optim
+        self.e_optim = e_optim
+        self.d_optim = d_optim
         self.keep_checkpoint = keep_checkpoint
         self.save_checkpoint_steps = save_checkpoint_steps
 
@@ -88,10 +85,10 @@ class ModelSaver(ModelSaverBase):
         Simple model saver to filesystem
     """
 
-    def __init__(self, base_path, model, model_opt, fields, optim,
+    def __init__(self, base_path, model, model_opt, fields, s_optim, e_optim, d_optim,
                  save_checkpoint_steps, keep_checkpoint=0):
         super(ModelSaver, self).__init__(
-            base_path, model, model_opt, fields, optim,
+            base_path, model, model_opt, fields, s_optim,e_optim,d_optim,
             save_checkpoint_steps, keep_checkpoint)
 
     def _save(self, step):
@@ -111,7 +108,9 @@ class ModelSaver(ModelSaverBase):
             'generator': generator_state_dict,
             'vocab': onmt.inputters.save_fields_to_vocab(self.fields),
             'opt': self.model_opt,
-            'optim': self.optim,
+            's_optim': self.s_optim,
+            'e_optim': self.e_optim,
+            'd_optim': self.d_optim,
         }
 
         logger.info("Saving checkpoint %s_step_%d.pt" % (self.base_path, step))
