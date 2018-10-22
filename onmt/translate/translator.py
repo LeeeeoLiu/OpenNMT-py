@@ -281,9 +281,10 @@ class Translator(object):
                         row_format = "{:>10.10} " + "{:>10.7f} " * len(srcs)
                     os.write(1, output.encode('utf-8'))
         
-        RecallN_score = ((RecallN_correct_count+0.0)/Q_count)
-        MRRN_score = ((MRR_sum+0.0)/Q_count)
-        _session_msg = 'Recall@20: {}\nMrr@20: {}'.format(RecallN_score, MRRN_score)
+        if Q_count:
+            RecallN_score = ((RecallN_correct_count+0.0)/Q_count)
+            MRRN_score = ((MRR_sum+0.0)/Q_count) 
+            _session_msg = 'Recall@20: {}\nMrr@20: {}'.format(RecallN_score, MRRN_score)
         if self.logger:
             self.logger.info(_session_msg)
         else:
@@ -586,37 +587,43 @@ class Translator(object):
         if data_type == 'text':
             _, src_lengths = batch.src
 
-        src_session = inputters.make_features(batch, 'src_item_sku')
-        user = inputters.make_features(batch, 'user')
-        stm = inputters.make_features(batch, 'stm')
-        tgt_session = inputters.make_features(batch, 'tgt_item_sku')[0]
-
-        if self.data_type == 'text':
-            _, session_lengths = batch.src_item_sku
-        else:
-            session_lengths = None
-
-        click_score, session_final = self.model.session_encoder(src_session, user, stm, session_lengths)
         _recall = 0
         _mrr = 0
         _q_count = 0
-
-        sorted_index_t = np.argsort(-click_score)[:,:20].to(click_score.device) # [b X 20]
-        label_t = tgt_session.unsqueeze(1).expand_as(sorted_index_t) # [b X 20]
-        _result_tensor = label_t - sorted_index_t
-        _q_count += _result_tensor.size(0)
-        _correct_count = (_result_tensor==0).nonzero().size(0)
-        if _correct_count > 0:
-            _recall += _correct_count
-            _mrr_tensor = (_result_tensor==0).nonzero()[:,1].float() + 1
-            _ones_tensor = torch.ones(_mrr_tensor.size()).float().to(click_score.device)
-            _mrr += torch.div(_ones_tensor, _mrr_tensor).sum().item()
-
+        if self.model.session_encoder is not None:
+            src_session = inputters.make_features(batch, 'src_item_sku')
+            user = inputters.make_features(batch, 'user')
+            stm = inputters.make_features(batch, 'stm')
+            tgt_session = inputters.make_features(batch, 'tgt_item_sku')[0]
+            _, session_lengths = batch.src_item_sku
+            click_score, session_final = self.model.session_encoder(src_session, user, stm, session_lengths)
+            
+            sorted_index_t = np.argsort(-click_score)[:,:20].to(click_score.device) # [b X 20]
+            label_t = tgt_session.unsqueeze(1).expand_as(sorted_index_t) # [b X 20]
+            _result_tensor = label_t - sorted_index_t
+            _q_count += _result_tensor.size(0)
+            _correct_count = (_result_tensor==0).nonzero().size(0)
+            if _correct_count > 0:
+                _recall += _correct_count
+                _mrr_tensor = (_result_tensor==0).nonzero()[:,1].float() + 1
+                _ones_tensor = torch.ones(_mrr_tensor.size()).float().to(click_score.device)
+                _mrr += torch.div(_ones_tensor, _mrr_tensor).sum().item()
+        else:
+            click_score = None
+            session_final = None
+            session_lengths = None
+            
         enc_states, memory_bank = self.model.encoder(src, src_lengths)
-        if isinstance(enc_states, tuple):  # LSTM
-            enc_states = tuple([enc_hid+session_final for enc_hid in enc_states])
-        else:  # GRU
-            enc_states = enc_states + session_final
+        if self.model.session_encoder is not None: 
+            if isinstance(enc_states, tuple):  # LSTM
+                enc_states = tuple([enc_hid+session_final for enc_hid in enc_states])
+            else:  # GRU
+                enc_states = enc_states + session_final
+        else:
+            if isinstance(enc_states, tuple):  # LSTM
+                enc_states = tuple([enc_hid for enc_hid in enc_states])
+            else:  # GRU
+                enc_states = enc_states
 
         dec_states = self.model.decoder.init_decoder_state(
             src, memory_bank, enc_states)
